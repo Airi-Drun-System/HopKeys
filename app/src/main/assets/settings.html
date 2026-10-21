@@ -116,6 +116,9 @@ select{width:100%;height:44px;border-radius:22px;border:0;background:var(--card2
  <div class="sec"><h2>Размеры и раскладка</h2><button class="rs" data-reset="height,gap,gapH,gapV,sidePad,bottomPad,numRow,toolbar,langLabel,oneHand,oneHandW">Сбросить</button></div>
  <div class="card" id="size"></div>
 
+ <div class="sec"><h2>Т9 и подсказки</h2><button class="rs" data-reset="suggest,autocorrect,learn">Сбросить</button></div>
+ <div class="card" id="t9"></div>
+
  <div class="sec"><h2>Набор</h2><button class="rs" data-reset="autoCap,dotSpace,swipe,longMs,repeatMs">Сбросить</button></div>
  <div class="card" id="typing"></div>
 
@@ -265,6 +268,8 @@ function draw(){
  document.getElementById('size').innerHTML=rng('height','Высота клавиш',36,76,1,52,'px')+rng('gapH','Отступ по горизонтали',0,16,1,t.gapH,'px')+rng('gapV','Отступ по вертикали',0,16,1,t.gapV,'px')+rng('sidePad','Поля по бокам',0,40,1,2,'px')+rng('bottomPad','Отступ снизу',0,60,1,6,'px')
   +tg('numRow','Ряд цифр сверху','',false)+tg('toolbar','Верхняя панель','Буфер, вставка, настройки, скрыть',true)+tg('langLabel','Язык на панели','',true)
   +'<div class="lbl">Режим одной руки</div>'+seg('oneHand',[['off','Выкл'],['left','Слева'],['right','Справа']],'off')+(oh!='off'?rng('oneHandW','Ширина',0.55,0.95,0.01,0.8,'pct')+'<div class="note">Нажми на стрелку в пустой полосе, чтобы перенести клавиатуру на другую сторону.</div>':'');
+ document.getElementById('t9').innerHTML=tg('suggest','Подсказки слов','Три слова над клавиатурой, нажми на нужное',true)+tg('autocorrect','Автозамена опечаток','Исправляет на пробеле. Нажми «стереть» сразу после, и вернётся как было',true)+tg('learn','Запоминать мои слова','Слова, которые ты печатаешь, подсказываются чаще. Хранится только на телефоне',true)
+  +'<button class="btn" id="b-forget">'+(arm=='forget'?'Точно? Нажми ещё раз':'Забыть выученные слова')+'</button><div class="note">В паролях, почте и ссылках подсказок нет. Словари: FrequencyWords, Hermit Dave (MIT).</div>';
  document.getElementById('typing').innerHTML=tg('autoCap','Заглавная в начале предложения','',true)+tg('dotSpace','Точка двойным пробелом','',true)+tg('swipe','Курсор свайпом по пробелу','Веди пальцем по пробелу влево и вправо',true)
   +rng('longMs','Задержка долгого нажатия',150,800,25,350,'ms')+rng('repeatMs','Скорость стирания при зажатии',20,120,5,55,'ms')+'<div class="note">Свайп влево по кнопке стирания удаляет слово целиком.</div>';
  document.getElementById('fb').innerHTML=rng('vib','Сила вибрации',0,1,0.05,.4,'pct')+rng('vibMs','Длина вибрации',3,40,1,12,'ms')+rng('sound','Громкость звука',0,1,0.05,0,'pct');
@@ -307,6 +312,7 @@ document.addEventListener('click',function(e){
  if(d.tdel!=null){var my3=JSON.parse(g('myThemes','[]'));my3.splice(+d.tdel,1);set('myThemes',JSON.stringify(my3));return}
  if(d.share!=null){var my4=JSON.parse(g('myThemes','[]'));var code=enc({n:my4[+d.share].n,p:my4[+d.share].p});if(K&&K.copy(code))toast('Код темы скопирован, отправь его другу');return}
  if(b.id=='b-import'){try{var o=dec(K?K.paste():'');var my5=JSON.parse(g('myThemes','[]'));my5.unshift({n:o.n||'Тема друга',p:o.p});set('myThemes',JSON.stringify(my5));applyLook(o.p);toast('Тема добавлена и надета')}catch(x){toast('В буфере нет кода темы HopKeys')}return}
+ if(b.id=='b-forget'){if(!arming('forget'))return;K&&K.forgetWords();toast('Выученные слова забыты');draw();return}
  if(b.id=='b-clr'){if(!arming('clr'))return;K&&K.clipClear();draw();return}
  if(b.id=='resetLook'){if(!arming('look'))return;LOOK.forEach(function(k){delete P[k]});K&&K.resetKeys(LOOK.join(','));fontURL='';draw();toast('Оформление сброшено');return}
  if(b.id=='reset'){if(!arming('all'))return;K&&K.reset();load();fontURL='';draw();toast('Всё сброшено');return}
