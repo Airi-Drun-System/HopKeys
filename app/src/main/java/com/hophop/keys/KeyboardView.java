@@ -78,7 +78,7 @@ final class KeyboardView extends View {
 
     void setMode(String m) { mode = m; relayout(); requestLayout(); invalidate(); }
 
-    private float toolbarHeight() { return t != null && t.toolbar ? dp(44) : 0; }
+    private float toolbarHeight() { return t != null && (t.toolbar || t.suggest) ? dp(44) : 0; }
 
     private void relayout() {
         if (t == null) return;
@@ -110,7 +110,7 @@ final class KeyboardView extends View {
     @Override protected void onDraw(Canvas c) {
         if (t == null) return;
         drawBackground(c);
-        if (t.toolbar) drawToolbar(c);
+        if (!svc.sugg.isEmpty()) drawSugg(c); else if (t.toolbar) drawToolbar(c);
         if (!"off".equals(t.oneHand)) drawHandSwitch(c);
         for (Layouts.Key k : keys) drawKey(c, k, pressed(k));
         for (int i = 0; i < ptrs.size(); i++) {
@@ -172,6 +172,26 @@ final class KeyboardView extends View {
         tp.setTextSize(dp(12));
         String lang = mode.equals("en") ? "EN" : mode.equals("ru") ? "RU" : "";
         c.drawText(lang, getWidth() / 2f, cy + dp(4), tp);
+    }
+
+    /** Полоска подсказок Т9: три слова, среднее выделено, если его поставит автозамена или оно точно есть в словаре. */
+    private void drawSugg(Canvas c) {
+        int n = svc.sugg.size();
+        float w = getWidth() / 3f, cy = toolbarH / 2;
+        for (int i = 0; i < n; i++) {
+            float cx = w * i + w / 2;
+            if (("s" + i).equals(toolDown)) { p.setColor(Theme.mulAlpha(t.text, 0.12f)); c.drawRoundRect(w * i + dp(4), dp(4), w * (i + 1) - dp(4), toolbarH - dp(4), dp(14), dp(14), p); }
+            boolean b = i == svc.suggBold;
+            tp.setTypeface(Typeface.create(face, b || t.bold ? Typeface.BOLD : Typeface.NORMAL));
+            tp.setColor(b ? t.text : Theme.mulAlpha(t.text, 0.75f));
+            tp.setTextSize(dp(16) * Math.min(1.2f, t.fontScale));
+            String s = svc.sugg.get(i);
+            float max = w - dp(12);
+            while (s.length() > 2 && tp.measureText(s) > max) s = s.substring(0, s.length() - 2) + "…";
+            c.drawText(s, cx, cy + dp(6), tp);
+            if (i > 0) { p.setColor(Theme.mulAlpha(t.text, 0.15f)); c.drawRect(w * i - dp(0.5f), cy - dp(10), w * i + dp(0.5f), cy + dp(10), p); }
+        }
+        tp.setTypeface(Typeface.create(face, t.bold ? Typeface.BOLD : Typeface.NORMAL));
     }
 
     /** Режим одной руки: в пустой полосе стрелка, нажатие переносит клавиатуру на другую сторону. */
@@ -359,6 +379,8 @@ final class KeyboardView extends View {
 
     private String toolAt(float x, float y) {
         if (y > toolbarH) return null;
+        if (!svc.sugg.isEmpty()) return "s" + Math.min(2, (int) (x / (getWidth() / 3f)));
+        if (!t.toolbar) return null;
         for (int i = 0; i < TOOLS_L.length; i++) if (Math.abs(x - (dp(26) + i * dp(48))) < dp(24)) return TOOLS_L[i];
         for (int i = 0; i < TOOLS_R.length; i++) if (Math.abs(x - (getWidth() - dp(26) - i * dp(48))) < dp(24)) return TOOLS_R[i];
         return null;
@@ -415,7 +437,7 @@ final class KeyboardView extends View {
             case MotionEvent.ACTION_POINTER_UP: {
                 if (toolDown != null) {
                     String tool = toolAt(e.getX(idx), e.getY(idx));
-                    if (toolDown.equals(tool)) svc.tool(tool);
+                    if (toolDown.equals(tool)) { if (tool.startsWith("s") && tool.length() == 2) svc.pickSuggestion(tool.charAt(1) - '0'); else svc.tool(tool); }
                     toolDown = null; invalidate();
                     if (ptrs.get(id) == null) return true;
                 }
