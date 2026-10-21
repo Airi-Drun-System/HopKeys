@@ -90,12 +90,7 @@ public class KeyboardService extends InputMethodService {
     @Override public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         theme = Theme.load(this);
-        Bitmap img = null;
-        if ("image".equals(theme.bgMode)) {
-            File f = new File(getFilesDir(), "bg.img");
-            if (f.exists()) img = BitmapFactory.decodeFile(f.getAbsolutePath());
-        }
-        kv.apply(theme, img);
+        kv.apply(theme, background(), typeface());
         closeClips();
         selfEditor = getPackageName().equals(info.packageName);
         int cls = info.inputType & InputType.TYPE_MASK_CLASS, var = info.inputType & InputType.TYPE_MASK_VARIATION;
@@ -137,6 +132,52 @@ public class KeyboardService extends InputMethodService {
             w.setNavigationBarColor(nav);
         } catch (Exception ignored) { }
     }
+
+    /** Фото фона; размытие делаем уменьшением и обратным растягиванием — дёшево и выглядит мягко. */
+    private Bitmap background() {
+        if (!"image".equals(theme.bgMode)) return null;
+        File f = new File(getFilesDir(), "bg.img");
+        if (!f.exists()) return null;
+        Bitmap b = BitmapFactory.decodeFile(f.getAbsolutePath());
+        if (b == null || theme.imgBlur < 1) return b;
+        float k = 1f / (1 + theme.imgBlur);
+        Bitmap small = Bitmap.createScaledBitmap(b, Math.max(4, (int) (b.getWidth() * k)), Math.max(4, (int) (b.getHeight() * k)), true);
+        return Bitmap.createScaledBitmap(small, b.getWidth(), b.getHeight(), true);
+    }
+
+    private android.graphics.Typeface typeface() {
+        try {
+            if ("custom".equals(theme.font)) {
+                File f = new File(getFilesDir(), "font.ttf");
+                if (f.exists()) return android.graphics.Typeface.createFromFile(f);
+            }
+            return android.graphics.Typeface.create(theme.font, android.graphics.Typeface.NORMAL);
+        } catch (Exception e) { return android.graphics.Typeface.DEFAULT; }
+    }
+
+    void flipHand() {
+        String n = "left".equals(theme.oneHand) ? "right" : "left";
+        Theme.prefs(this).edit().putString("oneHand", n).apply();
+        theme = Theme.load(this);
+        kv.apply(theme, background(), typeface());
+    }
+
+    /** Свайп влево по «удалить»: стереть слово перед курсором. */
+    void deleteWord() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        if (selfEditor) { for (int i = 0; i < 6; i++) ic.deleteSurroundingText(1, 0); return; }
+        CharSequence b = ic.getTextBeforeCursor(64, 0);
+        if (b == null || b.length() == 0) return;
+        int i = b.length();
+        while (i > 0 && Character.isWhitespace(b.charAt(i - 1))) i--;
+        while (i > 0 && !Character.isWhitespace(b.charAt(i - 1))) i--;
+        ic.deleteSurroundingText(b.length() - i, 0);
+        feedback("long");
+        autoCaps();
+    }
+
+    long repeatMs() { return (long) Theme.num(Theme.prefs(this), "repeatMs", 55); }
 
     // ---------- ввод ----------
 
@@ -225,7 +266,8 @@ public class KeyboardService extends InputMethodService {
         if (vib > 0) {
             Vibrator v = (Vibrator) getSystemService(VIBRATOR_SERVICE);
             if (v != null && v.hasVibrator()) {
-                int ms = code.equals("long") ? 22 : code.equals("tick") ? 6 : 12;
+                int base = (int) Theme.num(p, "vibMs", 12);
+                int ms = code.equals("long") ? base * 2 : code.equals("tick") ? Math.max(3, base / 2) : base;
                 if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, Math.max(1, Math.min(255, (int) (vib * 255)))));
                 else v.vibrate(ms);
             }
