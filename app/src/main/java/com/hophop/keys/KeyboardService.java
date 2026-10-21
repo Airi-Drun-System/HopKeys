@@ -46,6 +46,8 @@ public class KeyboardService extends InputMethodService {
     private Theme theme;
     private ClipboardManager cm;
     private boolean passwordField;
+    // Поле внутри самого HopKeys: синхронные вопросы к нему из клавиатуры зависают (один поток), поэтому их не задаём.
+    private boolean selfEditor;
     private long lastSpace;
     private int clearArmed;
     String lastLetters = "ru";
@@ -95,6 +97,7 @@ public class KeyboardService extends InputMethodService {
         }
         kv.apply(theme, img);
         closeClips();
+        selfEditor = getPackageName().equals(info.packageName);
         int cls = info.inputType & InputType.TYPE_MASK_CLASS, var = info.inputType & InputType.TYPE_MASK_VARIATION;
         passwordField = (cls == InputType.TYPE_CLASS_TEXT && (var == InputType.TYPE_TEXT_VARIATION_PASSWORD
                 || var == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD || var == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD))
@@ -146,7 +149,7 @@ public class KeyboardService extends InputMethodService {
     void deleteOne() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
-        CharSequence sel = ic.getSelectedText(0);
+        CharSequence sel = selfEditor ? null : ic.getSelectedText(0);
         if (!TextUtils.isEmpty(sel)) ic.commitText("", 1);
         else if (Build.VERSION.SDK_INT >= 24) ic.deleteSurroundingTextInCodePoints(1, 0);
         else ic.deleteSurroundingText(1, 0);
@@ -157,7 +160,7 @@ public class KeyboardService extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         long now = System.currentTimeMillis();
-        CharSequence before = ic.getTextBeforeCursor(2, 0);
+        CharSequence before = selfEditor ? null : ic.getTextBeforeCursor(2, 0);
         if (Theme.flag(Theme.prefs(this), "dotSpace", true) && now - lastSpace < 450 && before != null && before.length() == 2
                 && before.charAt(1) == ' ' && Character.isLetterOrDigit(before.charAt(0))) {
             ic.deleteSurroundingText(1, 0);
@@ -206,6 +209,7 @@ public class KeyboardService extends InputMethodService {
         int cls = info.inputType & InputType.TYPE_MASK_CLASS, var = info.inputType & InputType.TYPE_MASK_VARIATION;
         if (cls != InputType.TYPE_CLASS_TEXT || passwordField || var == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
                 || var == InputType.TYPE_TEXT_VARIATION_URI || var == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS) { kv.setAutoShift(false); return; }
+        if (selfEditor) { kv.setAutoShift(false); return; }
         CharSequence b = ic.getTextBeforeCursor(3, 0);
         boolean start = b == null || b.length() == 0 || b.toString().matches("(?s).*([.!?…]\\s+|\\n)$");
         kv.setAutoShift(start);
