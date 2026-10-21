@@ -28,7 +28,7 @@ import java.util.Map;
 
 /** Настройки: страница в WebView, все значения хранятся в SharedPreferences "kb" и читаются клавиатурой. */
 public class SettingsActivity extends Activity {
-    private static final int PICK_BG = 41;
+    private static final int PICK_BG = 41, PICK_FONT = 42;
     private WebView web;
 
     @Override protected void onCreate(Bundle b) {
@@ -61,8 +61,10 @@ public class SettingsActivity extends Activity {
 
     @Override protected void onActivityResult(int rq, int rc, Intent d) {
         super.onActivityResult(rq, rc, d);
-        if (rq != PICK_BG || rc != RESULT_OK || d == null || d.getData() == null) return;
+        if (rc != RESULT_OK || d == null || d.getData() == null) return;
         final Uri u = d.getData();
+        if (rq == PICK_FONT) { saveFont(u); return; }
+        if (rq != PICK_BG) return;
         new Thread(() -> {
             boolean ok = false;
             try {
@@ -79,6 +81,26 @@ public class SettingsActivity extends Activity {
                 }
             } catch (Exception ignored) { }
             js("onBg(" + ok + ")");
+        }).start();
+    }
+
+    /** Свой шрифт: копируем .ttf/.otf к себе и проверяем, что Android его читает. */
+    private void saveFont(final Uri u) {
+        new Thread(() -> {
+            boolean ok = false;
+            File tmp = new File(getFilesDir(), "font.tmp"), dst = new File(getFilesDir(), "font.ttf");
+            try (InputStream in = getContentResolver().openInputStream(u); FileOutputStream out = new FileOutputStream(tmp)) {
+                byte[] b = new byte[8192]; int n; long total = 0;
+                while ((n = in.read(b)) > 0) { out.write(b, 0, n); total += n; if (total > 8 * 1024 * 1024) throw new Exception("big"); }
+            } catch (Exception e) { tmp.delete(); }
+            try {
+                if (tmp.exists()) {
+                    android.graphics.Typeface tf = android.graphics.Typeface.createFromFile(tmp);
+                    if (tf != null && tmp.renameTo(dst)) { Theme.prefs(this).edit().putString("fontFace", "custom").apply(); ok = true; }
+                }
+            } catch (Exception ignored) { }
+            tmp.delete();
+            js("onFont(" + ok + ")");
         }).start();
     }
 
@@ -121,7 +143,7 @@ public class SettingsActivity extends Activity {
             }
             try {
                 return new JSONObject().put("enabled", enabled).put("current", current).put("blur", blur).put("sdk", Build.VERSION.SDK_INT)
-                    .put("hasBg", new File(getFilesDir(), "bg.img").exists()).toString();
+                    .put("hasBg", new File(getFilesDir(), "bg.img").exists()).put("hasFont", new File(getFilesDir(), "font.ttf").exists()).toString();
             } catch (Exception e) { return "{}"; }
         }
 
@@ -139,6 +161,44 @@ public class SettingsActivity extends Activity {
                 Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("image/*");
                 startActivityForResult(i, PICK_BG);
             });
+        }
+
+        @JavascriptInterface public void pickFont() {
+            runOnUiThread(() -> {
+                Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                    .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-otf", "application/octet-stream", "font/*"});
+                startActivityForResult(i, PICK_FONT);
+            });
+        }
+
+        /** Шрифт для превью на странице настроек. */
+        @JavascriptInterface public String fontData() {
+            File f = new File(getFilesDir(), "font.ttf");
+            if (!f.exists()) return "";
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+                byte[] b = new byte[(int) f.length()]; int n = 0; while (n < b.length) { int r = in.read(b, n, b.length - n); if (r < 0) break; n += r; }
+                return "data:font/ttf;base64," + android.util.Base64.encodeToString(b, android.util.Base64.NO_WRAP);
+            } catch (Exception e) { return ""; }
+        }
+
+        @JavascriptInterface public void resetKeys(String csv) {
+            SharedPreferences.Editor e = Theme.prefs(SettingsActivity.this).edit();
+            for (String k : csv.split(",")) if (!k.isEmpty()) e.remove(k);
+            e.apply();
+        }
+
+        @JavascriptInterface public String lookKeys() { return new JSONArray(java.util.Arrays.asList(Theme.LOOK_KEYS)).toString(); }
+
+        @JavascriptInterface public boolean copy(String text) {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) return false;
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("HopKeys", text));
+            return true;
+        }
+
+        @JavascriptInterface public String paste() {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            try { return String.valueOf(cm.getPrimaryClip().getItemAt(0).coerceToText(SettingsActivity.this)); } catch (Exception e) { return ""; }
         }
 
         @JavascriptInterface public String clips() { return ClipStore.get(SettingsActivity.this).sorted().toString(); }

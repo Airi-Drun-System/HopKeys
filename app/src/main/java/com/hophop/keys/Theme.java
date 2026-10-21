@@ -24,10 +24,16 @@ final class Theme {
         + "{\"id\":\"graphite\",\"n\":\"Графит\",\"bg\":\"#FF313038\",\"key\":\"#FF4F4B5C\",\"fn\":\"#FF3C3946\",\"text\":\"#FFE6E0E9\",\"accent\":\"#FFE6E0E9\",\"rim\":0,\"look\":\"flat\",\"radius\":18,\"gap\":6}"
         + "]";
 
-    int bg, key, fn, text, fnText, accent, rim, popup;
-    String look, bgMode, id;
-    float radius, gap, keyHeight, fontScale, keyAlpha, bgDim, blur;
-    boolean bold, upperLabels, numberRow, preview, hints;
+    int bg, key, fn, enterKey, text, fnText, hintText, accent, rim, popup, border, press, bg2;
+    String look, bgMode, id, font, keyStyle, shadow, spaceMode, spaceText, oneHand, pressAnim;
+    float radius, gapH, gapV, keyHeight, fontScale, keyAlpha, bgDim, blur, imgBlur, bgAngle, borderW, hintScale, sidePad, bottomPad, oneHandW;
+    boolean bold, upperLabels, numberRow, preview, hints, toolbar, langLabel;
+
+    /** Ключи настроек внешнего вида: их сохраняют «Мои темы» и сбрасывает «Сброс оформления». */
+    static final String[] LOOK_KEYS = {"style", "accent", "c_bg", "c_key", "c_fn", "c_enter", "c_text", "c_fnText", "c_hint", "c_popup", "c_border", "c_press",
+        "bgMode", "bgColor", "bgColor2", "bgAngle", "bgDim", "blur", "imgBlur", "keyAlpha", "radius", "gap", "gapH", "gapV", "height", "font", "fontFace",
+        "bold", "upper", "hints", "hintScale", "preview", "pressAnim", "keyStyle", "shadow", "borderW", "spaceMode", "spaceText", "toolbar", "langLabel",
+        "numRow", "oneHand", "oneHandW", "sidePad", "bottomPad"};
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("kb", Context.MODE_PRIVATE); }
 
@@ -80,23 +86,52 @@ final class Theme {
                 t.fn = (0x28 << 24) | (t.accent & 0xFFFFFF);
             }
         }
+        // Ручные цвета поверх стиля: пустая строка значит «как в стиле».
+        t.bg = col(p.getString("c_bg", ""), t.bg);
+        t.key = col(p.getString("c_key", ""), t.key);
+        t.fn = col(p.getString("c_fn", ""), t.fn);
+        t.text = col(p.getString("c_text", ""), t.text);
+        t.fnText = col(p.getString("c_fnText", ""), t.text);
+        t.hintText = col(p.getString("c_hint", ""), mulAlpha(t.text, 0.45f));
+        t.enterKey = col(p.getString("c_enter", ""), t.accent);
         t.radius = num(p, "radius", s.optInt("radius", 10));
-        t.gap = num(p, "gap", s.optInt("gap", 6));
+        float gap = num(p, "gap", s.optInt("gap", 6));
+        t.gapH = num(p, "gapH", gap);
+        t.gapV = num(p, "gapV", gap);
         t.keyHeight = num(p, "height", 52);
         t.fontScale = num(p, "font", 1f);
         t.keyAlpha = num(p, "keyAlpha", 1f);
         t.bgDim = num(p, "bgDim", 0.35f);
         t.blur = num(p, "blur", 40);
-        t.bgMode = p.getString("bgMode", "theme"); // theme | image | blur
+        t.imgBlur = num(p, "imgBlur", 0);
+        t.bgMode = p.getString("bgMode", "theme"); // theme | color | gradient | image | blur
+        t.bg2 = col(p.getString("bgColor2", ""), 0xFF5B3CC4);
+        if (t.bgMode.equals("color") || t.bgMode.equals("gradient")) t.bg = col(p.getString("bgColor", ""), t.bg | 0xFF000000);
+        t.bgAngle = num(p, "bgAngle", 90);
+        t.font = p.getString("fontFace", "sans-serif");
         t.bold = flag(p, "bold", false);
         t.upperLabels = flag(p, "upper", false);
         t.numberRow = flag(p, "numRow", false);
         t.preview = flag(p, "preview", true);
         t.hints = flag(p, "hints", true);
-        t.fnText = t.text;
+        t.hintScale = num(p, "hintScale", 1f);
+        t.pressAnim = p.getString("pressAnim", "scale");
+        t.keyStyle = p.getString("keyStyle", "fill"); // fill | outline | none
+        t.shadow = p.getString("shadow", t.look.equals("ios") ? "3d" : "none"); // none | soft | 3d
+        t.borderW = num(p, "borderW", 0);
+        t.border = col(p.getString("c_border", ""), mulAlpha(t.text, 0.35f));
+        t.spaceMode = p.getString("spaceMode", "lang"); // lang | custom | none
+        t.spaceText = p.getString("spaceText", "");
+        t.toolbar = flag(p, "toolbar", true);
+        t.langLabel = flag(p, "langLabel", true);
+        t.oneHand = p.getString("oneHand", "off"); // off | left | right
+        t.oneHandW = num(p, "oneHandW", 0.8f);
+        t.sidePad = num(p, "sidePad", 2);
+        t.bottomPad = num(p, "bottomPad", 6);
         t.key = mulAlpha(t.key, t.keyAlpha);
         t.fn = mulAlpha(t.fn, t.keyAlpha);
-        t.popup = t.look.equals("ios") ? t.key | 0xFF000000 : blend(t.bg | 0xFF000000, t.text, 0.12f);
+        t.popup = col(p.getString("c_popup", ""), t.look.equals("ios") ? t.key | 0xFF000000 : blend(t.bg | 0xFF000000, t.text, 0.12f));
+        t.press = col(p.getString("c_press", ""), 0);
         return t;
     }
 
