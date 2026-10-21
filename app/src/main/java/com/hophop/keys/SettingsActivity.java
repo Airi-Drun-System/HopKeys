@@ -187,6 +187,11 @@ public class SettingsActivity extends Activity {
             e.apply();
         }
 
+        @JavascriptInterface public void forgetWords() {
+            new File(getFilesDir(), "user_words.json").delete();
+            Theme.prefs(SettingsActivity.this).edit().putString("uwGen", String.valueOf(System.currentTimeMillis() % 1000000000L)).apply();
+        }
+
         @JavascriptInterface public String lookKeys() { return new JSONArray(java.util.Arrays.asList(Theme.LOOK_KEYS)).toString(); }
 
         @JavascriptInterface public boolean copy(String text) {

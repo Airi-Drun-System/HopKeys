@@ -27,7 +27,7 @@ final class Theme {
     int bg, key, fn, enterKey, text, fnText, hintText, accent, rim, popup, border, press, bg2;
     String look, bgMode, id, font, keyStyle, shadow, spaceMode, spaceText, oneHand, pressAnim;
     float radius, gapH, gapV, keyHeight, fontScale, keyAlpha, bgDim, blur, imgBlur, bgAngle, borderW, hintScale, sidePad, bottomPad, oneHandW;
-    boolean bold, upperLabels, numberRow, preview, hints, toolbar, langLabel;
+    boolean bold, upperLabels, numberRow, preview, hints, toolbar, langLabel, suggest;
 
     /** Ключи настроек внешнего вида: их сохраняют «Мои темы» и сбрасывает «Сброс оформления». */
     static final String[] LOOK_KEYS = {"style", "accent", "c_bg", "c_key", "c_fn", "c_enter", "c_text", "c_fnText", "c_hint", "c_popup", "c_border", "c_press",
@@ -123,6 +123,7 @@ final class Theme {
         t.spaceMode = p.getString("spaceMode", "lang"); // lang | custom | none
         t.spaceText = p.getString("spaceText", "");
         t.toolbar = flag(p, "toolbar", true);
+        t.suggest = flag(p, "suggest", true);
         t.langLabel = flag(p, "langLabel", true);
         t.oneHand = p.getString("oneHand", "off"); // off | left | right
         t.oneHandW = num(p, "oneHandW", 0.8f);
