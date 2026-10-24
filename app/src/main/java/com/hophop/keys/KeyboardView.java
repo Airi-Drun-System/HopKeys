@@ -40,7 +40,7 @@ final class KeyboardView extends View {
     private String toolDown;
 
     private static final class Ptr {
-        Layouts.Key key; float downX, downY, lastX; boolean longDone, cursor, committed;
+        Layouts.Key key; float downX, downY, lastX, px, py; boolean longDone, cursor, committed;
         String alts; int altSel; RectF altBox;
         boolean glide; float[] gx = new float[256], gy = new float[256]; int gn; // путь пальца при наборе свайпом
         void addPt(float x, float y) {
@@ -426,13 +426,13 @@ final class KeyboardView extends View {
                 // Быстрый набор: предыдущая буква засчитывается, как только нажата следующая.
                 for (int i = 0; i < ptrs.size(); i++) {
                     Ptr o = ptrs.valueAt(i);
-                    if (!o.committed && !o.glide && o.alts == null && !o.cursor && o.key != null && !o.key.special()) { press(o.key); o.committed = true; }
+                    if (!o.committed && !o.glide && o.alts == null && !o.cursor && o.key != null && !o.key.special()) { press(o.key, o.px, o.py); o.committed = true; }
                 }
                 if (!"off".equals(t.oneHand) && (x < kx0 || x > kx1)) { svc.flipHand(); return true; }
                 Layouts.Key k = keyAt(x, y);
                 if (k == null) return true;
                 Ptr pr = new Ptr();
-                pr.key = k; pr.downX = pr.lastX = x; pr.downY = y;
+                pr.key = k; pr.downX = pr.lastX = pr.px = x; pr.downY = pr.py = y;
                 ptrs.put(id, pr);
                 svc.feedback(k.code);
                 if (k.code.equals("{del}")) { svc.deleteOne(); pr.committed = true; scheduleRepeat(pr); }
@@ -446,6 +446,7 @@ final class KeyboardView extends View {
                     Ptr pr = ptrs.get(e.getPointerId(i));
                     if (pr == null) continue;
                     float x = e.getX(i), y = e.getY(i);
+                    pr.px = x; pr.py = y;
                     if (pr.alts != null) { pr.altSel = Math.max(0, Math.min(pr.alts.length() - 1, (int) ((x - pr.altBox.left) / (pr.altBox.width() / pr.alts.length())))); continue; }
                     if (pr.key.code.equals("{space}") && svc.swipeCursor() && (pr.cursor || Math.abs(x - pr.downX) > dp(16))) {
                         if (!pr.cursor) { pr.cursor = true; pr.lastX = x; h.removeCallbacksAndMessages(pr); }
@@ -484,7 +485,7 @@ final class KeyboardView extends View {
                 h.removeCallbacksAndMessages(pr);
                 if (pr.glide) { svc.glideWord(pr.gx, pr.gy, pr.gn, centers, letterW, shift); afterLetter(); invalidate(); return true; }
                 if (pr.alts != null) svc.commitChar(pr.alts.substring(pr.altSel, pr.altSel + 1), shift > 0);
-                else if (!pr.committed && !pr.cursor && !pr.longDone) press(pr.key);
+                else if (!pr.committed && !pr.cursor && !pr.longDone) press(pr.key, e.getX(idx), e.getY(idx));
                 if (pr.alts != null) afterLetter();
                 invalidate();
                 return true;
@@ -533,7 +534,9 @@ final class KeyboardView extends View {
         invalidate();
     }
 
-    private void press(Layouts.Key k) {
+    private void press(Layouts.Key k) { press(k, Float.NaN, Float.NaN); }
+    /** x, y — куда именно попал палец: по этому автозамена понимает, какую букву ты хотел. */
+    private void press(Layouts.Key k, float x, float y) {
         switch (k.code) {
             case "{space}": svc.space(); break;
             case "{enter}": svc.enter(); break;
@@ -542,7 +545,7 @@ final class KeyboardView extends View {
             case "{abc}": setMode(svc.lastLetters); break;
             case "{lang}": svc.switchLang(); break;
             default:
-                if (!k.special()) { svc.commitChar(k.code, shift > 0); afterLetter(); }
+                if (!k.special()) { svc.commitChar(k.code, shift > 0, x, y); afterLetter(); }
         }
     }
 

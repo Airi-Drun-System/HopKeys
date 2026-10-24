@@ -55,6 +55,14 @@ public class KeyboardService extends InputMethodService {
     // ---- Т9: подсказки слов и автозамена ----
     private volatile Dict dictRu, dictEn;
     private final StringBuilder cur = new StringBuilder(); // слово, которое сейчас набирается (подчёркнуто в поле)
+    private final java.util.List<float[]> curTaps = new java.util.ArrayList<>(); // где был палец для каждой буквы cur
+
+    /** Автозамена с учётом касаний; если касаний нет (вставка, свайп) — по словарю. */
+    private Fix.Result fixRun(String w) {
+        Dict d = dict();
+        if (d == null || kv == null || kv.centers.isEmpty() || curTaps.size() != w.length()) return null;
+        return Fix.run(d, w, curTaps.toArray(new float[0][]), kv.centers, kv.letterW, 3);
+    }
     private boolean wordsOn;          // в этом поле можно подсказывать
     private String autoFrom, autoTo;  // последняя автозамена, чтобы «стереть» вернул как было
     private final java.util.Map<String, Integer> userWords = new java.util.HashMap<>();
@@ -84,7 +92,8 @@ public class KeyboardService extends InputMethodService {
         spaceBefore = false; autoFrom = null;
         java.util.List<String> out = new java.util.ArrayList<>();
         for (String w : res) out.add(shift == 2 ? w.toUpperCase() : shift == 1 ? Character.toUpperCase(w.charAt(0)) + w.substring(1) : w);
-        cur.setLength(0); cur.append(out.get(0));
+        cur.setLength(0); curTaps.clear(); cur.append(out.get(0));
+        for (int i = 0; i < cur.length(); i++) curTaps.add(null);
         ic.setComposingText(cur, 1);
         glideCur = true;
         sugg.clear();
@@ -216,7 +225,11 @@ public class KeyboardService extends InputMethodService {
         Dict d = dict();
         if (wordsOn && d != null && cur.length() > 0 && Theme.flag(Theme.prefs(this), "suggest", true)) {
             String w = cur.toString(), lw = w.toLowerCase();
-            String corr = Theme.flag(Theme.prefs(this), "autocorrect", true) ? d.correct(lw) : null;
+            String corr = null;
+            if (Theme.flag(Theme.prefs(this), "autocorrect", true) && !glideCur) {
+                Fix.Result fr = fixRun(lw);
+                corr = fr != null ? (fr.fix ? fr.best : null) : d.correct(lw);
+            }
             java.util.List<String> comp = d.complete(lw, 3);
             if (corr != null) {
                 sugg.add("«" + w + "»"); sugg.add(caseLike(corr)); suggBold = 1;
@@ -237,13 +250,14 @@ public class KeyboardService extends InputMethodService {
         String w = cur.toString(), out = w;
         Dict d = dict();
         if (allowFix && !glideCur && wordsOn && d != null && Theme.flag(Theme.prefs(this), "autocorrect", true)) {
-            String c = d.correct(w.toLowerCase());
+            Fix.Result fr = fixRun(w.toLowerCase());
+            String c = fr != null ? (fr.fix ? fr.best : null) : d.correct(w.toLowerCase());
             if (c != null) { out = caseLike(c); autoFrom = w; autoTo = out; }
         }
         ic.commitText(out, 1);
         if (out.equals(w)) learn(w);
         learnPair(out);
-        cur.setLength(0); glideCur = false;
+        cur.setLength(0); curTaps.clear(); glideCur = false;
         updateSugg();
     }
 
@@ -256,7 +270,7 @@ public class KeyboardService extends InputMethodService {
         ic.commitText(w + " ", 1);
         learn(w);
         learnPair(w);
-        cur.setLength(0); autoFrom = null; glideCur = false; spaceBefore = true;
+        cur.setLength(0); curTaps.clear(); autoFrom = null; glideCur = false; spaceBefore = true;
         feedback("tick");
         updateSugg();
         autoCaps();
@@ -266,7 +280,7 @@ public class KeyboardService extends InputMethodService {
         super.onUpdateSelection(os, oe, ns, ne, cs, ce);
         // Курсор переставили пальцем: недописанное слово больше не ведём.
         if (cur.length() > 0 && (cs == -1 || ns != ce || ne != ce)) {
-            cur.setLength(0); glideCur = false; lastWord = null; spaceBefore = false;
+            cur.setLength(0); curTaps.clear(); glideCur = false; lastWord = null; spaceBefore = false;
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) ic.finishComposingText();
             updateSugg();
@@ -275,7 +289,7 @@ public class KeyboardService extends InputMethodService {
 
     @Override public void onFinishInput() {
         super.onFinishInput();
-        cur.setLength(0); autoFrom = null; sugg.clear(); glideCur = false; lastWord = null; spaceBefore = false;
+        cur.setLength(0); curTaps.clear(); autoFrom = null; sugg.clear(); glideCur = false; lastWord = null; spaceBefore = false;
     }
 
     @Override public void onDestroy() {
@@ -324,7 +338,7 @@ public class KeyboardService extends InputMethodService {
         boolean noSug = (info.inputType & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0;
         wordsOn = cls == InputType.TYPE_CLASS_TEXT && !passwordField && !noSug && var != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
                 && var != InputType.TYPE_TEXT_VARIATION_URI && var != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS;
-        cur.setLength(0); autoFrom = null; glideCur = false; lastWord = null; spaceBefore = false;
+        cur.setLength(0); curTaps.clear(); autoFrom = null; glideCur = false; lastWord = null; spaceBefore = false;
         if ((long) Theme.num(Theme.prefs(this), "uwGen", 0) != userGen) new Thread(this::loadUserWords).start();
         updateSugg();
         autoCaps();
@@ -388,7 +402,7 @@ public class KeyboardService extends InputMethodService {
     void deleteWord() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
-        if (cur.length() > 0) { cur.setLength(0); ic.commitText("", 1); updateSugg(); return; }
+        if (cur.length() > 0) { cur.setLength(0); curTaps.clear(); ic.commitText("", 1); updateSugg(); return; }
         if (selfEditor) { for (int i = 0; i < 6; i++) ic.deleteSurroundingText(1, 0); return; }
         CharSequence b = ic.getTextBeforeCursor(64, 0);
         if (b == null || b.length() == 0) return;
@@ -404,7 +418,8 @@ public class KeyboardService extends InputMethodService {
 
     // ---------- ввод ----------
 
-    void commitChar(String s, boolean upper) {
+    void commitChar(String s, boolean upper) { commitChar(s, upper, Float.NaN, Float.NaN); }
+    void commitChar(String s, boolean upper, float x, float y) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         String t = upper ? s.toUpperCase() : s;
@@ -424,7 +439,8 @@ public class KeyboardService extends InputMethodService {
         spaceBefore = false;
         if (!wordChar(t) && ".!?…\n".contains(t)) lastWord = null;
         if (wordsOn && wordChar(t) && Theme.flag(Theme.prefs(this), "suggest", true)) {
-            cur.append(t);
+            if (glideCur) { glideCur = false; curTaps.clear(); for (int i = 0; i < cur.length(); i++) curTaps.add(null); }
+            cur.append(t); curTaps.add(Float.isNaN(x) ? null : new float[]{x, y});
             ic.setComposingText(cur, 1);
             updateSugg();
             return;
@@ -445,9 +461,10 @@ public class KeyboardService extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
         spaceBefore = false;
-        if (glideCur && cur.length() > 0) { cur.setLength(0); glideCur = false; ic.commitText("", 1); updateSugg(); return; } // стереть слово свайпа целиком
+        if (glideCur && cur.length() > 0) { cur.setLength(0); curTaps.clear(); glideCur = false; ic.commitText("", 1); updateSugg(); return; } // стереть слово свайпа целиком
         if (cur.length() > 0) {
             cur.deleteCharAt(cur.length() - 1);
+            if (!curTaps.isEmpty()) curTaps.remove(curTaps.size() - 1);
             if (cur.length() == 0) ic.commitText("", 1); else ic.setComposingText(cur, 1);
             updateSugg();
             return;
@@ -507,7 +524,7 @@ public class KeyboardService extends InputMethodService {
     }
 
     void moveCursor(int dir) {
-        if (cur.length() > 0) { InputConnection ic = getCurrentInputConnection(); if (ic != null) ic.finishComposingText(); cur.setLength(0); updateSugg(); }
+        if (cur.length() > 0) { InputConnection ic = getCurrentInputConnection(); if (ic != null) ic.finishComposingText(); cur.setLength(0); curTaps.clear(); updateSugg(); }
         sendDownUpKeyEvents(dir > 0 ? KeyEvent.KEYCODE_DPAD_RIGHT : KeyEvent.KEYCODE_DPAD_LEFT);
         feedback("tick");
     }

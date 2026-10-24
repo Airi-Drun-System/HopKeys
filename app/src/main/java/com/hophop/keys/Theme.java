@@ -21,6 +21,8 @@ final class Theme {
         + "{\"id\":\"neon\",\"n\":\"Неон\",\"bg\":\"#FF07070D\",\"key\":\"#00000000\",\"fn\":\"#00000000\",\"text\":\"#FFF3EFFF\",\"accent\":\"#FF00F0FF\",\"rim\":255,\"look\":\"neon\",\"radius\":10,\"gap\":7},"
         + "{\"id\":\"minimal\",\"n\":\"Минимализм\",\"bg\":\"#FF111113\",\"key\":\"#00000000\",\"fn\":\"#00000000\",\"text\":\"#FFF2F2F2\",\"accent\":\"#FFFFFFFF\",\"rim\":0,\"look\":\"minimal\",\"radius\":8,\"gap\":4},"
         + "{\"id\":\"paper\",\"n\":\"Бумага\",\"bg\":\"#FFEDE6D8\",\"key\":\"#FFFBF8F1\",\"fn\":\"#FFDDD3C0\",\"text\":\"#FF2E2A24\",\"accent\":\"#FFC2452D\",\"rim\":40,\"look\":\"flat\",\"radius\":10,\"gap\":6},"
+        + "{\"id\":\"gboard_dark\",\"n\":\"Gboard тёмный\",\"bg\":\"#FF202124\",\"key\":\"#FF3C4043\",\"fn\":\"#FF5F6368\",\"text\":\"#FFE8EAED\",\"accent\":\"#FF8AB4F8\",\"rim\":0,\"look\":\"flat\",\"radius\":7,\"gap\":6},"
+        + "{\"id\":\"gboard_light\",\"n\":\"Gboard светлый\",\"bg\":\"#FFE8EAED\",\"key\":\"#FFFFFFFF\",\"fn\":\"#FFC5C9D0\",\"text\":\"#FF202124\",\"accent\":\"#FF1A73E8\",\"rim\":0,\"look\":\"flat\",\"radius\":7,\"gap\":6},"
         + "{\"id\":\"graphite\",\"n\":\"Графит\",\"bg\":\"#FF313038\",\"key\":\"#FF4F4B5C\",\"fn\":\"#FF3C3946\",\"text\":\"#FFE6E0E9\",\"accent\":\"#FFE6E0E9\",\"rim\":0,\"look\":\"flat\",\"radius\":18,\"gap\":6}"
         + "]";
 
