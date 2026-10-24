@@ -62,6 +62,90 @@ public class KeyboardService extends InputMethodService {
     final java.util.List<String> sugg = new java.util.ArrayList<>();
     int suggBold = -1;
 
+    // ---- быстрый набор: свайп, следующее слово, умная пунктуация ----
+    private boolean glideCur;       // в cur слово, набранное свайпом (его не автозаменяем)
+    private boolean spaceBefore;    // последним был пробел после слова: точку/запятую ставим вплотную к слову
+    private String lastWord;        // предыдущее слово, для подсказки следующего
+    private final java.util.Map<String, java.util.Map<String, Integer>> bigrams = new java.util.HashMap<>();
+    boolean glideOn() { return Theme.flag(Theme.prefs(this), "glide", true) && wordsOn && dict() != null; }
+    boolean trailOn() { return Theme.flag(Theme.prefs(this), "glideTrail", true); }
+
+    /** Свайп закончился: находим слово, ставим его подчёркнутым, похожие слова — в полоску подсказок. */
+    void glideWord(float[] xs, float[] ys, int n, java.util.Map<Character, float[]> centers, float keyW, int shift) {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic == null) return;
+        java.util.List<String> res = Glide.decode(dict(), centers, keyW, xs, ys, n, 3);
+        if (res.isEmpty()) return;
+        finishWord(false);
+        if (!selfEditor) {
+            CharSequence b = ic.getTextBeforeCursor(1, 0);
+            if (b != null && b.length() == 1 && !Character.isWhitespace(b.charAt(0)) && "([{«\"'„/@#".indexOf(b.charAt(0)) < 0) ic.commitText(" ", 1);
+        }
+        spaceBefore = false; autoFrom = null;
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String w : res) out.add(shift == 2 ? w.toUpperCase() : shift == 1 ? Character.toUpperCase(w.charAt(0)) + w.substring(1) : w);
+        cur.setLength(0); cur.append(out.get(0));
+        ic.setComposingText(cur, 1);
+        glideCur = true;
+        sugg.clear();
+        // как в Gboard: лучшее слово посередине и жирным
+        if (out.size() > 1) sugg.add(out.get(1));
+        sugg.add(out.get(0)); suggBold = sugg.size() - 1;
+        if (out.size() > 2) sugg.add(out.get(2));
+        feedback("tick");
+        if (kv != null) kv.invalidate();
+    }
+
+    private File bigramFile() { return new File(getFilesDir(), "user_pairs.json"); }
+    private void loadBigrams() {
+        try {
+            byte[] b = java.nio.file.Files.readAllBytes(bigramFile().toPath());
+            JSONObject o = new JSONObject(new String(b, java.nio.charset.StandardCharsets.UTF_8));
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next(); JSONObject m = o.getJSONObject(k);
+                java.util.Map<String, Integer> mm = new java.util.HashMap<>();
+                java.util.Iterator<String> it2 = m.keys();
+                while (it2.hasNext()) { String w = it2.next(); mm.put(w, m.optInt(w)); }
+                synchronized (bigrams) { bigrams.put(k, mm); }
+            }
+        } catch (Exception ignored) { }
+    }
+    /** Запоминаем пары «слово → следующее слово». Только на телефоне. */
+    private void learnPair(String w) {
+        String lw = w.toLowerCase();
+        if (lastWord != null && Theme.flag(Theme.prefs(this), "learn", true) && Theme.flag(Theme.prefs(this), "nextWord", true)) {
+            synchronized (bigrams) {
+                java.util.Map<String, Integer> m = bigrams.computeIfAbsent(lastWord, k -> new java.util.HashMap<>());
+                m.put(lw, Math.min(1000, m.getOrDefault(lw, 0) + 1));
+                if (m.size() > 40) m.remove(java.util.Collections.min(m.entrySet(), java.util.Map.Entry.comparingByValue()).getKey());
+                if (bigrams.size() > 5000) bigrams.remove(bigrams.keySet().iterator().next());
+                try (java.io.FileOutputStream o = new java.io.FileOutputStream(bigramFile())) {
+                    JSONObject j = new JSONObject();
+                    for (java.util.Map.Entry<String, java.util.Map<String, Integer>> e : bigrams.entrySet()) j.put(e.getKey(), new JSONObject(e.getValue()));
+                    o.write(j.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                } catch (Exception ignored) { }
+            }
+        }
+        lastWord = lw;
+    }
+    /** Подсказка следующего слова: то, что ты чаще всего пишешь после предыдущего. */
+    private void predictNext() {
+        if (lastWord == null || !wordsOn || !Theme.flag(Theme.prefs(this), "nextWord", true)) return;
+        java.util.Map<String, Integer> m;
+        synchronized (bigrams) { m = bigrams.get(lastWord); if (m != null) m = new java.util.HashMap<>(m); }
+        if (m == null) return;
+        java.util.List<java.util.Map.Entry<String, Integer>> l = new java.util.ArrayList<>(m.entrySet());
+        l.sort((a, b) -> b.getValue() - a.getValue());
+        boolean cap = kv != null && kv.shift > 0;
+        for (java.util.Map.Entry<String, Integer> e : l) {
+            if (sugg.size() >= 3) break;
+            String w = e.getKey();
+            sugg.add(cap ? Character.toUpperCase(w.charAt(0)) + w.substring(1) : w);
+        }
+        if (sugg.size() > 1) { String a = sugg.get(0); sugg.set(0, sugg.get(1)); sugg.set(1, a); suggBold = 1; }
+    }
+
     private final ClipboardManager.OnPrimaryClipChangedListener clipListener = this::grabClip;
 
     @Override public void onCreate() {
@@ -74,6 +158,9 @@ public class KeyboardService extends InputMethodService {
             try { dictRu = new Dict(getAssets().open("dict_ru.txt"), "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"); } catch (Exception ignored) { }
             try { dictEn = new Dict(getAssets().open("dict_en.txt"), "abcdefghijklmnopqrstuvwxyz'"); } catch (Exception ignored) { }
             loadUserWords();
+            loadBigrams();
+            if (dictRu != null) dictRu.byEnds('а', 'а', 1);   // заранее строим индекс для свайпа, чтобы первый свайп не тормозил
+            if (dictEn != null) dictEn.byEnds('a', 'a', 1);
         }).start();
     }
 
@@ -139,7 +226,7 @@ public class KeyboardService extends InputMethodService {
                 for (String c : comp) if (sugg.size() < 3) sugg.add(caseLike(c));
                 if (d.known(lw) && sugg.size() > 1) { String a = sugg.get(0); sugg.set(0, sugg.get(1)); sugg.set(1, a); suggBold = 1; }
             }
-        }
+        } else if (cur.length() == 0) predictNext();
         if (kv != null) kv.invalidate();
     }
 
@@ -149,13 +236,14 @@ public class KeyboardService extends InputMethodService {
         if (cur.length() == 0 || ic == null) return;
         String w = cur.toString(), out = w;
         Dict d = dict();
-        if (allowFix && wordsOn && d != null && Theme.flag(Theme.prefs(this), "autocorrect", true)) {
+        if (allowFix && !glideCur && wordsOn && d != null && Theme.flag(Theme.prefs(this), "autocorrect", true)) {
             String c = d.correct(w.toLowerCase());
             if (c != null) { out = caseLike(c); autoFrom = w; autoTo = out; }
         }
         ic.commitText(out, 1);
         if (out.equals(w)) learn(w);
-        cur.setLength(0);
+        learnPair(out);
+        cur.setLength(0); glideCur = false;
         updateSugg();
     }
 
@@ -167,7 +255,8 @@ public class KeyboardService extends InputMethodService {
         if (w.startsWith("«")) w = w.substring(1, w.length() - 1);
         ic.commitText(w + " ", 1);
         learn(w);
-        cur.setLength(0); autoFrom = null;
+        learnPair(w);
+        cur.setLength(0); autoFrom = null; glideCur = false; spaceBefore = true;
         feedback("tick");
         updateSugg();
         autoCaps();
@@ -177,7 +266,7 @@ public class KeyboardService extends InputMethodService {
         super.onUpdateSelection(os, oe, ns, ne, cs, ce);
         // Курсор переставили пальцем: недописанное слово больше не ведём.
         if (cur.length() > 0 && (cs == -1 || ns != ce || ne != ce)) {
-            cur.setLength(0);
+            cur.setLength(0); glideCur = false; lastWord = null; spaceBefore = false;
             InputConnection ic = getCurrentInputConnection();
             if (ic != null) ic.finishComposingText();
             updateSugg();
@@ -186,7 +275,7 @@ public class KeyboardService extends InputMethodService {
 
     @Override public void onFinishInput() {
         super.onFinishInput();
-        cur.setLength(0); autoFrom = null; sugg.clear();
+        cur.setLength(0); autoFrom = null; sugg.clear(); glideCur = false; lastWord = null; spaceBefore = false;
     }
 
     @Override public void onDestroy() {
@@ -235,7 +324,7 @@ public class KeyboardService extends InputMethodService {
         boolean noSug = (info.inputType & InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0;
         wordsOn = cls == InputType.TYPE_CLASS_TEXT && !passwordField && !noSug && var != InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
                 && var != InputType.TYPE_TEXT_VARIATION_URI && var != InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS;
-        cur.setLength(0); autoFrom = null;
+        cur.setLength(0); autoFrom = null; glideCur = false; lastWord = null; spaceBefore = false;
         if ((long) Theme.num(Theme.prefs(this), "uwGen", 0) != userGen) new Thread(this::loadUserWords).start();
         updateSugg();
         autoCaps();
@@ -320,6 +409,20 @@ public class KeyboardService extends InputMethodService {
         if (ic == null) return;
         String t = upper ? s.toUpperCase() : s;
         autoFrom = null;
+        // «слово .» → «слово. »: пробел после слова переезжает за знак
+        if (spaceBefore && cur.length() == 0 && !selfEditor && ".,!?:;)…".contains(t) && Theme.flag(Theme.prefs(this), "smartPunct", true)) {
+            CharSequence b = ic.getTextBeforeCursor(1, 0);
+            if (b != null && b.length() == 1 && b.charAt(0) == ' ') {
+                ic.deleteSurroundingText(1, 0);
+                ic.commitText(t + " ", 1);
+                spaceBefore = false;
+                if (".!?…".contains(t)) lastWord = null;
+                updateSugg();
+                return;
+            }
+        }
+        spaceBefore = false;
+        if (!wordChar(t) && ".!?…\n".contains(t)) lastWord = null;
         if (wordsOn && wordChar(t) && Theme.flag(Theme.prefs(this), "suggest", true)) {
             cur.append(t);
             ic.setComposingText(cur, 1);
@@ -341,6 +444,8 @@ public class KeyboardService extends InputMethodService {
     void deleteOne() {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) return;
+        spaceBefore = false;
+        if (glideCur && cur.length() > 0) { cur.setLength(0); glideCur = false; ic.commitText("", 1); updateSugg(); return; } // стереть слово свайпа целиком
         if (cur.length() > 0) {
             cur.deleteCharAt(cur.length() - 1);
             if (cur.length() == 0) ic.commitText("", 1); else ic.setComposingText(cur, 1);
@@ -368,7 +473,9 @@ public class KeyboardService extends InputMethodService {
             finishWord(true);
             ic.commitText(" ", 1);
             lastSpace = System.currentTimeMillis();
+            spaceBefore = true;
             autoCaps();
+            updateSugg();
             return;
         }
         autoFrom = null;
@@ -383,6 +490,7 @@ public class KeyboardService extends InputMethodService {
             ic.commitText(" ", 1);
             lastSpace = now;
         }
+        spaceBefore = false;
         autoCaps();
     }
 
@@ -390,7 +498,7 @@ public class KeyboardService extends InputMethodService {
         InputConnection ic = getCurrentInputConnection();
         EditorInfo info = getCurrentInputEditorInfo();
         if (ic == null || info == null) return;
-        finishWord(true); autoFrom = null;
+        finishWord(true); autoFrom = null; spaceBefore = false; lastWord = null;
         int action = info.imeOptions & EditorInfo.IME_MASK_ACTION;
         boolean multi = (info.inputType & InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0 || (info.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0;
         if (multi || action == EditorInfo.IME_ACTION_NONE || action == EditorInfo.IME_ACTION_UNSPECIFIED) ic.commitText("\n", 1);

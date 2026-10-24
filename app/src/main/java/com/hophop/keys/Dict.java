@@ -49,6 +49,26 @@ final class Dict {
 
     boolean known(String w) { return freq.containsKey(w) || user.containsKey(w); }
 
+    /** Для набора свайпом: слова с заданной первой и последней буквой, самые частые первыми. */
+    private Map<String, List<String>> ends;
+    synchronized List<String> byEnds(char f, char l, int cap) {
+        if (ends == null) {
+            ends = new HashMap<>();
+            for (String w : sorted) {
+                if (w.isEmpty()) continue;
+                ends.computeIfAbsent(key(w), k -> new ArrayList<>()).add(w);
+            }
+            for (List<String> v : ends.values()) v.sort((x, y) -> Long.compare(score(y), score(x)));
+        }
+        String k = "" + f + l;
+        List<String> base = ends.getOrDefault(k, new ArrayList<>());
+        List<String> out = new ArrayList<>(base.subList(0, Math.min(cap, base.size())));
+        for (String w : user.keySet()) if (!w.isEmpty() && key(w).equals(k) && !freq.containsKey(w)) out.add(w);
+        return out;
+    }
+    private static String key(String w) { return "" + norm(w.charAt(0)) + norm(w.charAt(w.length() - 1)); }
+    static char norm(char c) { return c == 'ё' ? 'е' : c; }
+
     /** До n слов, начинающихся с prefix, по убыванию веса. */
     List<String> complete(String prefix, int n) {
         List<String> out = new ArrayList<>();

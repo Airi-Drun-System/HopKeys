@@ -42,6 +42,11 @@ final class KeyboardView extends View {
     private static final class Ptr {
         Layouts.Key key; float downX, downY, lastX; boolean longDone, cursor, committed;
         String alts; int altSel; RectF altBox;
+        boolean glide; float[] gx = new float[256], gy = new float[256]; int gn; // путь пальца при наборе свайпом
+        void addPt(float x, float y) {
+            if (gn == gx.length) { gx = java.util.Arrays.copyOf(gx, gn * 2); gy = java.util.Arrays.copyOf(gy, gn * 2); }
+            gx[gn] = x; gy[gn] = y; gn++;
+        }
     }
     private final SparseArray<Ptr> ptrs = new SparseArray<>();
     private Ptr popupPtr;
@@ -94,6 +99,29 @@ final class KeyboardView extends View {
         kx0 = x0; kx1 = x0 + avail;
         keys = Layouts.build(rows(), t.numberRow, avail, rowH, toolbarH);
         for (Layouts.Key k : keys) k.x += x0;
+        centers.clear(); letterW = 0;
+        for (Layouts.Key k : keys) if (k.code.length() == 1 && Character.isLetter(k.code.charAt(0))) {
+            centers.put(k.code.charAt(0), new float[]{k.x + k.w / 2, k.y + k.h / 2}); letterW = k.w;
+        }
+    }
+    final java.util.Map<Character, float[]> centers = new java.util.HashMap<>();
+    float letterW;
+    private final android.graphics.Path trail = new android.graphics.Path();
+
+    private boolean glideAllowed() { return (mode.equals("ru") || mode.equals("en")) && svc.glideOn() && ptrs.size() == 1; }
+
+    /** След пальца при наборе свайпом: толстый у пальца, тонкий в хвосте. */
+    private void drawTrail(Canvas c, Ptr pr) {
+        if (!svc.trailOn() || pr.gn < 2) return;
+        int from = Math.max(0, pr.gn - 60);
+        p.setStyle(Paint.Style.STROKE); p.setStrokeCap(Paint.Cap.ROUND);
+        for (int i = from + 1; i < pr.gn; i++) {
+            float k = (i - from) / (float) (pr.gn - from);
+            p.setColor(Theme.mulAlpha(t.accent | 0xFF000000, 0.25f + 0.6f * k));
+            p.setStrokeWidth(dp(2 + 5 * k));
+            c.drawLine(pr.gx[i - 1], pr.gy[i - 1], pr.gx[i], pr.gy[i], p);
+        }
+        p.setStyle(Paint.Style.FILL);
     }
 
     @Override protected void onMeasure(int wm, int hm) {
@@ -115,13 +143,14 @@ final class KeyboardView extends View {
         for (Layouts.Key k : keys) drawKey(c, k, pressed(k));
         for (int i = 0; i < ptrs.size(); i++) {
             Ptr pr = ptrs.valueAt(i);
-            if (pr.alts != null) drawAlts(c, pr);
+            if (pr.glide) drawTrail(c, pr);
+            else if (pr.alts != null) drawAlts(c, pr);
             else if (t.preview && pr.key != null && !pr.key.special() && !pr.cursor) drawPreview(c, pr.key);
         }
     }
 
     private boolean pressed(Layouts.Key k) {
-        for (int i = 0; i < ptrs.size(); i++) if (ptrs.valueAt(i).key == k) return true;
+        for (int i = 0; i < ptrs.size(); i++) if (ptrs.valueAt(i).key == k && !ptrs.valueAt(i).glide) return true;
         return false;
     }
 
@@ -397,7 +426,7 @@ final class KeyboardView extends View {
                 // Быстрый набор: предыдущая буква засчитывается, как только нажата следующая.
                 for (int i = 0; i < ptrs.size(); i++) {
                     Ptr o = ptrs.valueAt(i);
-                    if (!o.committed && o.alts == null && !o.cursor && o.key != null && !o.key.special()) { press(o.key); o.committed = true; }
+                    if (!o.committed && !o.glide && o.alts == null && !o.cursor && o.key != null && !o.key.special()) { press(o.key); o.committed = true; }
                 }
                 if (!"off".equals(t.oneHand) && (x < kx0 || x > kx1)) { svc.flipHand(); return true; }
                 Layouts.Key k = keyAt(x, y);
@@ -426,6 +455,14 @@ final class KeyboardView extends View {
                         continue;
                     }
                     if (pr.key.code.equals("{del}") && !pr.cursor && pr.downX - x > dp(40)) { pr.cursor = true; h.removeCallbacksAndMessages(pr); svc.deleteWord(); continue; }
+                    if (pr.glide) { for (int hI = 0; hI < e.getHistorySize(); hI++) pr.addPt(e.getHistoricalX(i, hI), e.getHistoricalY(i, hI)); pr.addPt(x, y); continue; }
+                    // палец ушёл с буквы дальше, чем на клавишу: это набор свайпом
+                    if (!pr.committed && !pr.longDone && pr.alts == null && pr.key.code.length() == 1 && Character.isLetter(pr.key.code.charAt(0)) && glideAllowed()
+                            && Math.hypot(x - pr.downX, y - pr.downY) > letterW * 0.9f) {
+                        pr.glide = true; h.removeCallbacksAndMessages(pr);
+                        pr.addPt(pr.downX, pr.downY); pr.addPt(x, y);
+                        continue;
+                    }
                     if (pr.committed || pr.longDone) continue;
                     Layouts.Key k = keyAt(x, y);
                     if (k != null && k != pr.key && !pr.key.special() && !k.special()) { pr.key = k; scheduleLong(pr); }
@@ -445,6 +482,7 @@ final class KeyboardView extends View {
                 ptrs.remove(id);
                 if (pr == null) return true;
                 h.removeCallbacksAndMessages(pr);
+                if (pr.glide) { svc.glideWord(pr.gx, pr.gy, pr.gn, centers, letterW, shift); afterLetter(); invalidate(); return true; }
                 if (pr.alts != null) svc.commitChar(pr.alts.substring(pr.altSel, pr.altSel + 1), shift > 0);
                 else if (!pr.committed && !pr.cursor && !pr.longDone) press(pr.key);
                 if (pr.alts != null) afterLetter();
